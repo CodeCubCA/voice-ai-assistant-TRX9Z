@@ -2,17 +2,24 @@
 
 # Voice AI Assistant
 
-An intelligent AI chatbot with comprehensive voice input and output capabilities, featuring multi-language support, personality modes, and voice command recognition. Built with Streamlit and powered by Google Gemini AI.
+An intelligent AI chatbot with comprehensive voice input and output capabilities, featuring multi-language support, personality modes, voice command recognition, and male/female voice selection. Built with Streamlit and powered by Google Gemini AI.
 
 ## Features
 
 ### Core Functionality
 - **AI-Powered Conversations**: Intelligent responses powered by Google Gemini 2.5 Flash model
 - **Voice Input**: Click-to-record voice input with automatic speech-to-text conversion
-- **Voice Output**: Text-to-speech audio playback for all AI responses
+- **Voice Output**: Text-to-speech audio playback for all AI responses with male/female voice options
 - **Multi-Language Support**: Communicate in 5 languages (English, Spanish, French, Chinese, Japanese)
 - **Text Input**: Traditional keyboard input with editable transcriptions
 - **Chat History**: Persistent conversation history throughout the session
+
+### Voice Selection
+Choose between two voice types:
+- **👩 Female Voice** - US English female voice
+- **👨 Male Voice** - UK English male voice
+
+Switch voices anytime and audio automatically regenerates with the selected voice!
 
 ### Voice Commands
 Control the assistant hands-free with voice commands:
@@ -106,6 +113,14 @@ AI responds in your selected language with matching TTS audio.
 5. Review/edit the transcribed text if needed
 6. Click "📤 Send Message"
 
+### Voice Selection
+1. Go to sidebar and find "🎤 Choose Voice"
+2. Select either:
+   - 👩 Female (US English)
+   - 👨 Male (UK English)
+3. All new messages will use the selected voice
+4. Existing messages will regenerate with the new voice
+
 ### Voice Commands
 Say commands directly to control the assistant:
 - "help" - See all available commands
@@ -119,13 +134,15 @@ Say commands directly to control the assistant:
 
 ### Changing Settings
 - **Language**: Use sidebar dropdown (🌍 Choose Language)
+- **Voice**: Use sidebar dropdown (🎤 Choose Voice)
 - **Personality**: Use sidebar dropdown (Choose Personality)
 - **Clear History**: Click "🗑️ Clear Chat History" button
 
 ### Audio Playback
-- AI responses automatically include audio in your selected language
+- AI responses automatically include audio in your selected language and voice
 - Click the play button to listen
 - Audio is cached for faster playback
+- TTS speed can be adjusted with voice commands
 
 ## Project Structure
 
@@ -154,6 +171,12 @@ voice-ai-assistant-TRX9Z/
 ### Voice Command Recognition
 The assistant automatically detects when you're giving a command versus having a conversation. Commands are processed immediately without being sent to the AI.
 
+### Voice Selection System
+- **Female Voice**: Uses TLD `"com"` (US English - female-sounding)
+- **Male Voice**: Uses TLD `"co.uk"` (UK English - male-sounding)
+- Audio is cached per message, language, AND voice
+- Switching voices clears cache and regenerates audio
+
 ### Multi-Language Intelligence
 - Voice recognition adapts to your selected language
 - AI responds in the chosen language
@@ -172,12 +195,32 @@ Control how fast the AI speaks:
 - Normal speed (default): Natural conversation pace
 - Slow speed: Better for language learning or complex topics
 
+### Rate Limiting Protection
+- Built-in 0.5 second delay between TTS requests
+- Prevents hitting Google's API rate limits
+- User-friendly error messages if limits are reached
+- Smart caching reduces API calls
+
 ## Security Notes
 
 - The `.env` file containing your API key is excluded from version control
 - Never commit your actual API key to the repository
 - Use the provided `.env.example` as a template
 - API key is loaded securely using python-dotenv
+
+## Best Practices
+
+### Avoiding Rate Limits
+1. Don't switch voices/languages too frequently
+2. Keep conversations shorter when testing
+3. Clear chat history periodically
+4. Wait between rapid actions
+
+### Optimal Voice Usage
+1. Speak clearly and at a normal pace
+2. Wait for the 2-second pause to complete recording
+3. Review transcriptions before sending
+4. Use voice commands for quick actions
 
 ## Contributing
 
@@ -225,12 +268,19 @@ This project is created for educational purposes as part of a coding assignment.
 **Issue**: Voice commands not working
 - **Solution**: Say commands clearly in English (e.g., "help", "clear chat")
 
+**Issue**: TTS rate limit (429 error)
+- **Solution**: Wait 1-2 minutes for rate limit to reset, avoid switching voices/languages rapidly
+
+**Issue**: Voice doesn't sound different
+- **Solution**: Clear browser cache and regenerate audio, ensure different TLD is being used
+
 ## Sample Usage Examples
 
 ### English Conversation
 1. Select "English" from language dropdown
-2. Click microphone and say "Hello, how are you?"
-3. AI responds in English with audio playback
+2. Select "Female" or "Male" voice
+3. Click microphone and say "Hello, how are you?"
+4. AI responds in English with selected voice audio
 
 ### Spanish Conversation
 1. Select "Español" from language dropdown
@@ -242,6 +292,13 @@ This project is created for educational purposes as part of a coding assignment.
 2. Say "speak slower" to adjust TTS speed
 3. Say "clear chat" to reset conversation
 
+### Changing Voices
+1. Select "Male" voice in sidebar
+2. Ask "Tell me a joke"
+3. Listen to response with male voice
+4. Switch to "Female" voice
+5. Same response plays with female voice
+
 ### Personality Modes
 1. Select "Study Buddy" for educational help
 2. Ask "Can you explain quantum physics?"
@@ -250,12 +307,22 @@ This project is created for educational purposes as part of a coding assignment.
 ## Future Enhancements
 
 Potential features for future development:
-- Additional languages
+- Additional languages (Arabic, German, Hindi, etc.)
+- More voice options (accents, ages)
 - Custom personality creation
-- Conversation export
+- Conversation export (PDF, TXT)
 - Voice authentication
 - Offline mode
 - Mobile app version
+- Voice activity detection
+- Real-time translation
+
+## Performance Tips
+
+- **First Load**: TTS may take a few seconds for the first message
+- **Caching**: Subsequent playback of the same message is instant
+- **Rate Limits**: Wait a moment between voice/language switches
+- **Browser**: Chrome/Edge recommended for best audio support
 
 ## Contact
 
@@ -264,3 +331,5 @@ For questions or issues, please open an issue on the GitHub repository.
 ---
 
 **Built with ❤️ using Python, Streamlit, and Google Gemini AI**
+
+**Version**: 2.0 - Now with Voice Selection & Enhanced Multi-Language Support!

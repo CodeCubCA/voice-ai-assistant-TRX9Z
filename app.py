@@ -7,12 +7,29 @@ import speech_recognition as sr
 import io
 from gtts import gTTS
 from io import BytesIO
+import time
 
 # Load environment variables
 load_dotenv()
 
 # Configure Gemini API
 genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
+
+# Voice configurations
+VOICES = {
+    "Female": {
+        "name": "Female",
+        "icon": "👩",
+        "tld": "com",  # US English female voice
+        "description": "Female voice"
+    },
+    "Male": {
+        "name": "Male",
+        "icon": "👨",
+        "tld": "co.uk",  # UK English male-like voice
+        "description": "Male voice"
+    }
+}
 
 # Language configurations
 LANGUAGES = {
@@ -97,6 +114,9 @@ if 'personality' not in st.session_state:
 
 if 'language' not in st.session_state:
     st.session_state.language = "English"
+
+if 'voice' not in st.session_state:
+    st.session_state.voice = "Female"
 
 if 'voice_text' not in st.session_state:
     st.session_state.voice_text = ""
@@ -191,13 +211,13 @@ def transcribe_audio(audio_bytes, language_code="en-US"):
         return None, f"Error during transcription: {str(e)}"
 
 # Function to generate text-to-speech audio
-def generate_tts_audio(text, message_index, language_code="en"):
+def generate_tts_audio(text, message_index, language_code="en", voice_tld="com"):
     """Generate TTS audio for the given text with progress feedback"""
     try:
-        # Create unique cache key with language
-        cache_key = f"{message_index}_{language_code}"
+        # Create unique cache key with language and voice
+        cache_key = f"{message_index}_{language_code}_{voice_tld}"
 
-        # Check if audio already exists for this message and language
+        # Check if audio already exists for this message, language, and voice
         if cache_key in st.session_state.tts_audio:
             return st.session_state.tts_audio[cache_key], None
 
@@ -214,20 +234,27 @@ def generate_tts_audio(text, message_index, language_code="en"):
 
         # Generate TTS audio with spinner
         with st.spinner("🎵 Generating audio..."):
-            # Use session state speed setting and selected language
-            tts = gTTS(text=text, lang=language_code, slow=st.session_state.tts_speed)
+            # Add small delay to avoid rate limiting
+            time.sleep(0.5)
+
+            # Use session state speed setting, selected language, and voice
+            tts = gTTS(text=text, lang=language_code, slow=st.session_state.tts_speed, tld=voice_tld)
             audio_buffer = BytesIO()
             tts.write_to_fp(audio_buffer)
             audio_buffer.seek(0)
             audio_bytes = audio_buffer.read()
 
-            # Store in session state with language-specific key
+            # Store in session state with language and voice-specific key
             st.session_state.tts_audio[cache_key] = audio_bytes
 
         return audio_bytes, warning_msg
 
     except Exception as e:
-        error_msg = f"❌ Audio generation failed: {str(e)}"
+        # Handle specific rate limit errors
+        if "429" in str(e) or "Too Many Requests" in str(e):
+            error_msg = "⚠️ TTS rate limit reached. Please wait a moment before generating more audio."
+        else:
+            error_msg = f"❌ Audio generation failed: {str(e)}"
         return None, error_msg
 
 # Sidebar
@@ -253,6 +280,29 @@ with st.sidebar:
     # Display current language info
     current_language = LANGUAGES[st.session_state.language]
     st.markdown(f"**Current:** {current_language['flag']} {current_language['display_name']}")
+
+    st.markdown("---")
+
+    # Voice selector
+    st.subheader("🎤 Choose Voice")
+    selected_voice = st.selectbox(
+        "Select Voice:",
+        options=list(VOICES.keys()),
+        index=list(VOICES.keys()).index(st.session_state.voice),
+        format_func=lambda x: f"{VOICES[x]['icon']} {VOICES[x]['name']}",
+        key='voice_selector'
+    )
+
+    # Update voice if changed
+    if selected_voice != st.session_state.voice:
+        st.session_state.voice = selected_voice
+        # Clear TTS cache when voice changes
+        st.session_state.tts_audio = {}
+        st.rerun()
+
+    # Display current voice info
+    current_voice = VOICES[st.session_state.voice]
+    st.markdown(f"**Current:** {current_voice['icon']} {current_voice['name']}")
 
     st.markdown("---")
 
@@ -353,7 +403,8 @@ for idx, message in enumerate(st.session_state.messages):
     if message["role"] == "model":
         # Generate audio and get any warnings/errors
         tts_lang_code = LANGUAGES[st.session_state.language]['tts_code']
-        audio_result = generate_tts_audio(message["content"], idx, tts_lang_code)
+        voice_tld = VOICES[st.session_state.voice]['tld']
+        audio_result = generate_tts_audio(message["content"], idx, tts_lang_code, voice_tld)
 
         if audio_result:
             audio_bytes, feedback_msg = audio_result
