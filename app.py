@@ -5,12 +5,53 @@ import os
 from audio_recorder_streamlit import audio_recorder
 import speech_recognition as sr
 import io
+from gtts import gTTS
+from io import BytesIO
 
 # Load environment variables
 load_dotenv()
 
 # Configure Gemini API
 genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
+
+# Language configurations
+LANGUAGES = {
+    "English": {
+        "name": "English",
+        "flag": "🇺🇸",
+        "tts_code": "en",
+        "speech_code": "en-US",
+        "display_name": "English"
+    },
+    "Spanish": {
+        "name": "Spanish",
+        "flag": "🇪🇸",
+        "tts_code": "es",
+        "speech_code": "es-ES",
+        "display_name": "Español"
+    },
+    "French": {
+        "name": "French",
+        "flag": "🇫🇷",
+        "tts_code": "fr",
+        "speech_code": "fr-FR",
+        "display_name": "Français"
+    },
+    "Chinese": {
+        "name": "Chinese",
+        "flag": "🇨🇳",
+        "tts_code": "zh-CN",
+        "speech_code": "zh-CN",
+        "display_name": "中文"
+    },
+    "Japanese": {
+        "name": "Japanese",
+        "flag": "🇯🇵",
+        "tts_code": "ja",
+        "speech_code": "ja-JP",
+        "display_name": "日本語"
+    }
+}
 
 # Personality configurations
 PERSONALITIES = {
@@ -54,6 +95,9 @@ if 'messages' not in st.session_state:
 if 'personality' not in st.session_state:
     st.session_state.personality = "General Assistant"
 
+if 'language' not in st.session_state:
+    st.session_state.language = "English"
+
 if 'voice_text' not in st.session_state:
     st.session_state.voice_text = ""
 
@@ -63,8 +107,71 @@ if 'last_audio_bytes' not in st.session_state:
 if 'message_sent' not in st.session_state:
     st.session_state.message_sent = False
 
+if 'tts_audio' not in st.session_state:
+    st.session_state.tts_audio = {}
+
+if 'processing_tts' not in st.session_state:
+    st.session_state.processing_tts = False
+
+if 'tts_speed' not in st.session_state:
+    st.session_state.tts_speed = False  # False = normal speed, True = slow speed
+
+if 'command_feedback' not in st.session_state:
+    st.session_state.command_feedback = None
+
+# Function to parse voice commands
+def parse_command(text):
+    """Parse user input for voice commands and return command type"""
+    text_lower = text.lower().strip()
+
+    # Command definitions with aliases
+    if any(keyword in text_lower for keyword in ['clear chat', 'clear history', 'reset chat', 'new chat']):
+        return 'clear_chat'
+    elif any(keyword in text_lower for keyword in ['change personality', 'switch personality', 'change mode']):
+        return 'change_personality'
+    elif any(keyword in text_lower for keyword in ['speak faster', 'speed up', 'faster', 'talk faster']):
+        return 'speak_faster'
+    elif any(keyword in text_lower for keyword in ['speak slower', 'slow down', 'slower', 'talk slower']):
+        return 'speak_slower'
+    elif any(keyword in text_lower for keyword in ['help', 'show commands', 'what can you do', 'commands']):
+        return 'help'
+
+    return None  # No command detected
+
+# Function to execute voice commands
+def execute_command(command):
+    """Execute the parsed voice command and return feedback message"""
+    if command == 'clear_chat':
+        st.session_state.messages = []
+        st.session_state.tts_audio = {}
+        return "✅ Chat history cleared!"
+
+    elif command == 'change_personality':
+        return "🔄 Please use the sidebar to select a different personality."
+
+    elif command == 'speak_faster':
+        st.session_state.tts_speed = False
+        return "⚡ TTS speed set to normal (faster)."
+
+    elif command == 'speak_slower':
+        st.session_state.tts_speed = True
+        return "🐢 TTS speed set to slow."
+
+    elif command == 'help':
+        return """📋 **Available Voice Commands:**
+
+- **"clear chat"** - Clear conversation history
+- **"change personality"** - Switch AI personality
+- **"speak faster"** - Increase TTS speed
+- **"speak slower"** - Decrease TTS speed
+- **"help"** - Show this command list
+
+You can also use natural variations like "reset chat", "speed up", etc."""
+
+    return None
+
 # Function to convert audio to text
-def transcribe_audio(audio_bytes):
+def transcribe_audio(audio_bytes, language_code="en-US"):
     """Convert audio bytes to text using speech recognition"""
     try:
         # Initialize recognizer
@@ -73,8 +180,8 @@ def transcribe_audio(audio_bytes):
         # Convert bytes to audio data
         audio_data = sr.AudioData(audio_bytes, sample_rate=16000, sample_width=2)
 
-        # Perform recognition
-        text = recognizer.recognize_google(audio_data)
+        # Perform recognition with specified language
+        text = recognizer.recognize_google(audio_data, language=language_code)
         return text, None
     except sr.UnknownValueError:
         return None, "Could not understand audio. Please try again."
@@ -83,9 +190,70 @@ def transcribe_audio(audio_bytes):
     except Exception as e:
         return None, f"Error during transcription: {str(e)}"
 
+# Function to generate text-to-speech audio
+def generate_tts_audio(text, message_index, language_code="en"):
+    """Generate TTS audio for the given text with progress feedback"""
+    try:
+        # Create unique cache key with language
+        cache_key = f"{message_index}_{language_code}"
+
+        # Check if audio already exists for this message and language
+        if cache_key in st.session_state.tts_audio:
+            return st.session_state.tts_audio[cache_key], None
+
+        # Truncate very long messages for TTS (>1000 chars)
+        if len(text) > 1000:
+            text = text[:1000] + "..."
+            warning_msg = "⚠️ Message truncated to 1000 characters for audio generation."
+        else:
+            warning_msg = None
+
+        # Show warning for long messages
+        if len(text) > 500 and warning_msg is None:
+            warning_msg = "⏳ Long message - audio generation may take a moment..."
+
+        # Generate TTS audio with spinner
+        with st.spinner("🎵 Generating audio..."):
+            # Use session state speed setting and selected language
+            tts = gTTS(text=text, lang=language_code, slow=st.session_state.tts_speed)
+            audio_buffer = BytesIO()
+            tts.write_to_fp(audio_buffer)
+            audio_buffer.seek(0)
+            audio_bytes = audio_buffer.read()
+
+            # Store in session state with language-specific key
+            st.session_state.tts_audio[cache_key] = audio_bytes
+
+        return audio_bytes, warning_msg
+
+    except Exception as e:
+        error_msg = f"❌ Audio generation failed: {str(e)}"
+        return None, error_msg
+
 # Sidebar
 with st.sidebar:
     st.title("🤖 AI Chatbot Settings")
+    st.markdown("---")
+
+    # Language selector
+    st.subheader("🌍 Choose Language")
+    selected_language = st.selectbox(
+        "Select Language:",
+        options=list(LANGUAGES.keys()),
+        index=list(LANGUAGES.keys()).index(st.session_state.language),
+        format_func=lambda x: f"{LANGUAGES[x]['flag']} {LANGUAGES[x]['display_name']}",
+        key='language_selector'
+    )
+
+    # Update language if changed
+    if selected_language != st.session_state.language:
+        st.session_state.language = selected_language
+        st.rerun()
+
+    # Display current language info
+    current_language = LANGUAGES[st.session_state.language]
+    st.markdown(f"**Current:** {current_language['flag']} {current_language['display_name']}")
+
     st.markdown("---")
 
     # Personality selector
@@ -109,26 +277,53 @@ with st.sidebar:
     st.markdown(f"*{current_personality['description']}*")
 
     st.markdown("---")
-    st.subheader("How to Use Voice Input")
-    st.markdown("""
-    1. 🎤 Click the microphone button
-    2. 🗣️ Speak your message clearly
-    3. 🔴 Recording stops automatically after pause
-    4. ✏️ Edit transcribed text if needed
-    5. 📤 Click Send to submit
-    """)
+
+    # Voice Commands in expandable section
+    with st.expander("🎤 Voice Commands", expanded=False):
+        st.markdown("""
+        **Say these commands to control the assistant:**
+
+        - 🗑️ **"clear chat"** - Reset conversation
+        - 🔄 **"change personality"** - Switch mode
+        - ⚡ **"speak faster"** - Normal speed
+        - 🐢 **"speak slower"** - Slow speed
+        - ❓ **"help"** - Show all commands
+
+        **Tip:** You can also use variations like "reset chat", "speed up", etc.
+        """)
+
+    # Voice & Audio Features in expandable section
+    with st.expander("🎙️ Voice & Audio Features", expanded=False):
+        st.markdown("**Voice Input:**")
+        st.markdown("""
+        1. 🎤 Click microphone button
+        2. 🗣️ Speak in your selected language
+        3. Auto-stops after 2s pause
+        4. ✏️ Edit text if needed
+        5. 📤 Send message
+        """)
+
+        st.markdown("**Audio Playback:**")
+        st.markdown("""
+        - 🔊 AI responses include audio in selected language
+        - Click play to listen
+        - Audio cached for speed
+        - Long messages may be truncated
+        """)
 
     st.markdown("---")
-    st.subheader("About")
-    st.markdown("""
-    This chatbot uses:
-    - **Streamlit** for the interface
-    - **Google Gemini API** (gemini-2.5-flash)
-    - **Voice Input** via speech recognition
-    - Personalized AI personalities
 
-    Clear the chat history by changing the personality!
-    """)
+    # About section in expandable
+    with st.expander("ℹ️ About", expanded=False):
+        st.markdown("""
+        **Technologies:**
+        - Streamlit UI
+        - Google Gemini 2.5 Flash
+        - Speech Recognition
+        - Text-to-Speech (gTTS)
+
+        **Tip:** Change personality to clear chat!
+        """)
 
     # Clear chat button
     if st.button("🗑️ Clear Chat History"):
@@ -136,13 +331,56 @@ with st.sidebar:
         st.rerun()
 
 # Main chat interface
-st.title(f"{PERSONALITIES[st.session_state.personality]['emoji']} AI Chatbot")
-st.markdown(f"*Currently chatting with: **{st.session_state.personality}***")
+current_lang = LANGUAGES[st.session_state.language]
+st.title(f"{PERSONALITIES[st.session_state.personality]['emoji']} AI Chatbot {current_lang['flag']}")
+st.markdown(f"*Currently chatting with: **{st.session_state.personality}** • Language: **{current_lang['display_name']}***")
+
+# Show command feedback if available
+if st.session_state.command_feedback:
+    st.success(st.session_state.command_feedback)
+    st.session_state.command_feedback = None  # Clear after displaying
+
+# Show helpful tip if no messages yet
+if len(st.session_state.messages) == 0:
+    st.info("💡 **Quick Start:** Type a message or click the microphone to speak. Try saying 'help' to see voice commands!")
 
 # Display chat messages
-for message in st.session_state.messages:
+for idx, message in enumerate(st.session_state.messages):
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
+
+    # Display audio player for AI messages (outside chat_message container)
+    if message["role"] == "model":
+        # Generate audio and get any warnings/errors
+        tts_lang_code = LANGUAGES[st.session_state.language]['tts_code']
+        audio_result = generate_tts_audio(message["content"], idx, tts_lang_code)
+
+        if audio_result:
+            audio_bytes, feedback_msg = audio_result
+
+            # Show warning or error message if any
+            if feedback_msg:
+                if "failed" in feedback_msg.lower():
+                    st.error(feedback_msg)
+                else:
+                    st.warning(feedback_msg)
+
+            # Display audio player with improved layout
+            if audio_bytes:
+                # Add divider for visual separation
+                st.markdown("---")
+
+                # Use columns for better layout
+                col_audio_label, col_audio_player = st.columns([1, 4])
+
+                with col_audio_label:
+                    st.markdown("**🔊 Listen:**")
+
+                with col_audio_player:
+                    st.audio(audio_bytes, format='audio/mp3')
+
+                # Add spacing after audio
+                st.markdown("")
 
 # Voice Input Section
 st.markdown("### 💬 Send a Message")
@@ -166,7 +404,9 @@ with col_status:
     # Check if we have new audio (different from last processed)
     if audio_bytes and audio_bytes != st.session_state.last_audio_bytes:
         with st.spinner("🎙️ Transcribing audio..."):
-            text, error = transcribe_audio(audio_bytes)
+            # Get current language code for speech recognition
+            lang_code = LANGUAGES[st.session_state.language]['speech_code']
+            text, error = transcribe_audio(audio_bytes, lang_code)
             if text:
                 st.session_state.voice_text = text
                 st.session_state.last_audio_bytes = audio_bytes
@@ -203,14 +443,28 @@ send_clicked = st.button("📤 Send Message", type="primary", use_container_widt
 # Handle send button
 if send_clicked:
     if user_input.strip():
-        # Add user message to chat history
-        st.session_state.messages.append({"role": "user", "content": user_input.strip()})
+        # Check if input is a voice command
+        command = parse_command(user_input.strip())
 
-        # Clear state and increment counter
-        st.session_state.voice_text = ""
-        st.session_state.last_audio_bytes = None
-        st.session_state.input_counter += 1
-        st.rerun()
+        if command:
+            # Execute the command
+            feedback = execute_command(command)
+            st.session_state.command_feedback = feedback
+
+            # Clear input state
+            st.session_state.voice_text = ""
+            st.session_state.last_audio_bytes = None
+            st.session_state.input_counter += 1
+            st.rerun()
+        else:
+            # Not a command, add as regular message to chat history
+            st.session_state.messages.append({"role": "user", "content": user_input.strip()})
+
+            # Clear state and increment counter
+            st.session_state.voice_text = ""
+            st.session_state.last_audio_bytes = None
+            st.session_state.input_counter += 1
+            st.rerun()
     else:
         st.warning("⚠️ Please enter a message before sending.")
 
@@ -228,10 +482,17 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
         message_placeholder = st.empty()
 
         try:
+            # Get current language
+            current_lang = LANGUAGES[st.session_state.language]
+
+            # Build system instruction with personality and language
+            base_prompt = PERSONALITIES[st.session_state.personality]['system_prompt']
+            language_instruction = f"\n\nIMPORTANT: Please respond in {current_lang['display_name']}."
+
             # Initialize the model with system instruction
             model = genai.GenerativeModel(
                 'gemini-2.5-flash',
-                system_instruction=PERSONALITIES[st.session_state.personality]['system_prompt']
+                system_instruction=base_prompt + language_instruction
             )
 
             # Build conversation history for context
